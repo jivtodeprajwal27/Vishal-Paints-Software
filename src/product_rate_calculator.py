@@ -1,8 +1,12 @@
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QFormLayout, QGroupBox, QLineEdit, QPushButton, \
+from PyQt5.QtWidgets import QApplication,QFileDialog, QMainWindow, QWidget, QVBoxLayout, QFormLayout, QGroupBox, QLineEdit, QPushButton, \
     QTableWidget, QTableWidgetItem, QLabel, QComboBox, QHBoxLayout, QMenuBar, QMenu, QAction, QMessageBox
 import sqlite3
+from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QDialog
 from PyQt5.QtCore import Qt
+from datetime import datetime
+from reportlab.pdfgen import canvas
+from ProductHistoryScreen import ProductHistoryScreen
 
 class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
     def __init__(self):
@@ -32,7 +36,62 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
     def initUI(self):
         self.setWindowTitle("Product Rate Calculator")
         self.setGeometry(100, 100, 600, 600)
-
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f7f7f7;
+            }
+            QGroupBox {
+                font-size: 16px;
+                font-weight: bold;
+                color: #444;
+                border: 1px solid #ccc;
+                border-radius: 5px;
+                margin-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top center;
+                padding: 5px;
+            }
+            QLabel {
+                font-size: 14px;
+            }
+            QLineEdit {
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                padding: 5px;
+                font-size: 14px;
+                background-color: #fff;
+            }
+            QComboBox {
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                padding: 5px;
+                font-size: 14px;
+                background-color: #fff;
+            }
+            QPushButton {
+                font-size: 14px;
+                padding: 8px 15px;
+                background-color: #4caf50;
+                color: white;
+                border: none;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QTableWidget {
+                border: 1px solid #ccc;
+                border-radius: 5px;
+                background-color: #fff;
+            }
+            QHeaderView::section {
+                background-color: #ddd;
+                font-weight: bold;
+                border: none;
+            }
+        """)
         # Create Menu Bar
         self.createMenuBar()
 
@@ -56,6 +115,7 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
         self.sales_cost = QLineEdit()
         self.misc_cost = QLineEdit()
         self.total_rate = QLineEdit()
+        self.total_rate.setReadOnly(True)
 
         self.product_form.addRow("Product Name:", self.product_name)
         self.product_form.addRow("Description:", self.description)
@@ -69,14 +129,6 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
         self.product_form.addRow("Total Rate:", self.total_rate)
 
         self.product_form_group.setLayout(self.product_form)
-
-        # Add Materials Table
-        self.material_table = QTableWidget(0, 4)
-        self.material_table.setHorizontalHeaderLabels(
-            ["Material Type", "Material Name", "Quantity", "Rate"]
-        )
-        layout.addWidget(QLabel("Materials:"))
-        layout.addWidget(self.material_table)
 
         # Dropdown for material type and name
         self.material_type_dropdown = QComboBox()
@@ -101,13 +153,99 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
 
         layout.addLayout(material_input_layout)
 
+        # Add Materials Table
+        self.material_table = QTableWidget(0, 4)
+        self.material_table.setHorizontalHeaderLabels(
+            ["Material Type", "Material Name", "Quantity", "Rate"]
+        )
+        layout.addWidget(QLabel("Materials:"))
+        layout.addWidget(self.material_table)
+
         # Calculate Product Rate Button
         self.calculate_button = QPushButton("Calculate Product Rate")
         self.calculate_button.clicked.connect(self.calculate_product_rate)
         layout.addWidget(self.calculate_button)
 
+        # Generate Invoice Button
+        self.invoice_button = QPushButton("Generate Invoice")
+        self.invoice_button.clicked.connect(self.generate_invoice)
+        layout.addWidget(self.invoice_button)
+
+        # Clear Form Button
+        self.clear_button = QPushButton("Clear Form")
+        self.clear_button.clicked.connect(self.clear_form)
+        layout.addWidget(self.clear_button)
+
         # Set Main Layout
         central_widget.setLayout(layout)
+    
+    def clear_form(self):
+        """
+        Clears all input fields in the form.
+        """
+        self.product_name.clear()
+        self.description.clear()
+        self.yield_value.clear()
+        self.viscosity.clear()
+        self.weight_lit.clear()
+        self.container_cost.clear()
+        self.transport_cost.clear()
+        self.sales_cost.clear()
+        self.misc_cost.clear()
+        self.total_rate.clear()
+        self.material_table.setRowCount(0)
+
+    def generate_invoice(self):
+        """Generate and save an invoice as a PDF."""
+        # Step 1: Set download path
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Set Invoice Download Path",
+            "",
+            "PDF Files (*.pdf);;All Files (*)",
+            options=options
+        )
+
+        if not file_path:
+            QMessageBox.warning(self, "No Path Set", "No file path selected. Invoice generation aborted.")
+            return
+
+        try:
+            # Step 2: Generate the invoice PDF
+            self.generate_invoice_pdf(file_path)
+            QMessageBox.information(self, "Success", f"Invoice successfully saved at:\n{file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to generate invoice: {str(e)}")
+
+    def generate_invoice_pdf(self, file_path):
+        """Generate the invoice PDF and save it to the specified file path."""
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import letter
+
+        # Example product details
+        product_details = {
+            "Product Name": self.product_name.text(),
+            "Description": self.description.text(),
+            "Yield Value": self.yield_value.text(),
+            "Viscosity": self.viscosity.text(),
+            "Weight / Lit": self.weight_lit.text(),
+            "Total Rate": self.total_rate.text(),
+            "Date": datetime.now().strftime("%Y-%m-%d"),
+        }
+
+        c = canvas.Canvas(file_path, pagesize=letter)
+        c.drawString(100, 750, "Invoice")
+        c.drawString(100, 730, "=====================")
+        y = 700
+
+        for key, value in product_details.items():
+            c.drawString(100, y, f"{key}: {value}")
+            y -= 20
+
+        c.save()
+
 
     def createMenuBar(self):
         menu_bar = self.menuBar()
@@ -154,7 +292,8 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
         QMessageBox.information(self, "Product Rate Calculator", "You are already on the Product Rate Calculator screen.")
 
     def show_product_history(self):
-        QMessageBox.information(self, "Product History", "This feature will show the history of products.")
+        self.product_history_action = ProductHistoryScreen(self.db_connection)
+        self.product_history_action.show()
 
     def open_raw_material_management(self):
         # QMessageBox.information(self, "Raw Material Management", "This feature will manage raw materials.")
@@ -193,7 +332,6 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
         history_dialog.setLayout(layout)
         history_dialog.exec()
 
-
     def show_inventory_details(self):
         QMessageBox.information(self, "Inventory Details", "This feature will show the inventory details.")
 
@@ -203,8 +341,14 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
         return conn
 
     def create_raw_materials_table(self):
-        """Create the raw_materials table and insert initial data"""
+        """Create the raw_materials table if it doesn't exist and insert initial data only once"""
         cursor = self.db_connection.cursor()
+        
+        # cursor.execute("DROP TABLE IF EXISTS raw_materials")
+        # self.db_connection.commit()
+        # print("The raw_materials table has been deleted.")
+
+        # Create table if it doesn't exist
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS raw_materials (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -213,56 +357,61 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
                 mat_type TEXT NOT NULL
             )
         """)
-        cursor.execute("""
-            INSERT INTO raw_materials (name, price, mat_type) VALUES
-            ('P1', 227.00, 'Pigment'),
-            ('P11', 109.00, 'Pigment'),
-            ('P6', 170.00, 'Pigment'),
-            ('P3', 560.00, 'Pigment'),
-            ('P4', 158.00, 'Pigment'),
-            ('P5', 109.00, 'Pigment'),
-            ('P60', 59.00, 'Pigment'),
-            ('P7', 115.00, 'Pigment'),
-            ('P100', 35.00, 'Pigment'),
-            ('P50', 125.00, 'Pigment'),
-            ('P70', 130.00, 'Pigment'),
-            ('Redoxide Powder', 15.00, 'Pigment'),
-            ('White Whiting', 25.00, 'Pigment'),
-            ('Talc', 104.00, 'Pigment'),
-            ('A1', 162.00, 'Additive'),
-            ('A2', 150.00, 'Additive'),
-            ('HCO', 150.00, 'Additive'),
-            ('ACE', 600.00, 'Additive'),
-            ('PINCOIL', 150.00, 'Additive'),
-            ('BRIGHT', 600.00, 'Additive'),
-            ('CATALYST MATT', 225.00, 'Additive'),
-            ('ICLAY', 308.00, 'Additive'),
-            ('ICLAY JELLY 10%', 250.00, 'Additive'),
-            ('LEAK 10%', 108.00, 'Additive'),
-            ('OMEGA', 55.00, 'Additive'),
-            ('DH', 134.00, 'Additive'),
-            ('M1 50%', 125.00, 'Resin'),
-            ('M1 70%', 124.00, 'Resin'),
-            ('M6', 206.00, 'Resin'),
-            ('Mo 70%', 220.00, 'Resin'),
-            ('MD', 129.00, 'Resin'),
-            ('MD 60%', 125.00, 'Resin'),
-            ('R 920', 160.00, 'Resin'),
-            ('DBTL', 40.00, 'Resin'),
-            ('927', 109.00, 'Resin'),
-            ('X1', 118.00, 'Thinner'),
-            ('X2', 120.00, 'Thinner'),
-            ('X3', 118.00, 'Thinner'),
-            ('X5', 105.00, 'Thinner'),
-            ('C9', 38.00, 'Thinner'),
-            ('C12', 25.00, 'Thinner');
-        """)
-        self.db_connection.commit()
+        
+        # Check if the table already has data
+        cursor.execute("SELECT COUNT(*) FROM raw_materials")
+        if cursor.fetchone()[0] == 0:  # Only insert data if table is empty
+            cursor.execute("""
+                INSERT INTO raw_materials (name, price, mat_type) VALUES
+                ('P1', 227.00, 'Pigment'),
+                ('P11', 109.00, 'Pigment'),
+                ('P6', 170.00, 'Pigment'),
+                ('P3', 560.00, 'Pigment'),
+                ('P4', 158.00, 'Pigment'),
+                ('P5', 109.00, 'Pigment'),
+                ('P60', 59.00, 'Pigment'),
+                ('P7', 115.00, 'Pigment'),
+                ('P100', 35.00, 'Pigment'),
+                ('P50', 125.00, 'Pigment'),
+                ('P70', 130.00, 'Pigment'),
+                ('Redoxide Powder', 15.00, 'Pigment'),
+                ('White Whiting', 25.00, 'Pigment'),
+                ('Talc', 104.00, 'Pigment'),
+                ('A1', 162.00, 'Additive'),
+                ('A2', 150.00, 'Additive'),
+                ('HCO', 150.00, 'Additive'),
+                ('ACE', 600.00, 'Additive'),
+                ('PINCOIL', 150.00, 'Additive'),
+                ('BRIGHT', 600.00, 'Additive'),
+                ('CATALYST MATT', 225.00, 'Additive'),
+                ('ICLAY', 308.00, 'Additive'),
+                ('ICLAY JELLY 10%', 250.00, 'Additive'),
+                ('LEAK 10%', 108.00, 'Additive'),
+                ('OMEGA', 55.00, 'Additive'),
+                ('DH', 134.00, 'Additive'),
+                ('M1 50%', 125.00, 'Resin'),
+                ('M1 70%', 124.00, 'Resin'),
+                ('M6', 206.00, 'Resin'),
+                ('Mo 70%', 220.00, 'Resin'),
+                ('MD', 129.00, 'Resin'),
+                ('MD 60%', 125.00, 'Resin'),
+                ('R 920', 160.00, 'Resin'),
+                ('DBTL', 40.00, 'Resin'),
+                ('927', 109.00, 'Resin'),
+                ('X1', 118.00, 'Thinner'),
+                ('X2', 120.00, 'Thinner'),
+                ('X3', 118.00, 'Thinner'),
+                ('X5', 105.00, 'Thinner'),
+                ('C9', 38.00, 'Thinner'),
+                ('C12', 25.00, 'Thinner');
+            """)
+            self.db_connection.commit()
 
     def create_product_details_table(self):
-        """Create the product_details table"""
+        """Create the product_details table if it doesn't exist"""
         cursor = self.db_connection.cursor()
-        cursor.execute("""
+
+        cursor.execute("""  
             CREATE TABLE IF NOT EXISTS product_details (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 product_name TEXT NOT NULL,
@@ -273,8 +422,20 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
                 transport_cost REAL NOT NULL,
                 sales_cost REAL NOT NULL,
                 misc_cost REAL NOT NULL,
-                total_rate REAL NOT NULL
+                total_rate REAL NOT NULL,
+                description TEXT,
+                date_created TEXT
             )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS product_materials (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                material_name TEXT NOT NULL,
+                material_quantity REAL NOT NULL,
+                FOREIGN KEY(product_id) REFERENCES product_details(id)
+            );
         """)
         self.db_connection.commit()
 
@@ -324,14 +485,53 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
         self.material_table.setItem(row_position, 3, QTableWidgetItem(rate))
 
     def calculate_product_rate(self):
-        """Calculate and display product rate"""
-        total_cost = 0
-        for row in range(self.material_table.rowCount()):
-            quantity = float(self.material_table.item(row, 2).text())
-            rate = float(self.material_table.item(row, 3).text())
-            total_cost += quantity * rate
+        """Calculate, display, and commit the total product rate to the database."""
+        try:
+            # Calculate total material cost from the table
+            total_material_cost = 0
+            for row in range(self.material_table.rowCount()):
+                quantity = float(self.material_table.item(row, 2).text())
+                rate = float(self.material_table.item(row, 3).text())
+                total_material_cost += quantity * rate
 
-        self.total_rate.setText(str(total_cost))
+            # Collect additional product costs
+            container_cost = float(self.container_cost.text() or 0)
+            transport_cost = float(self.transport_cost.text() or 0)
+            sales_cost = float(self.sales_cost.text() or 0)
+            misc_cost = float(self.misc_cost.text() or 0)
+
+            # Calculate total rate
+            total_cost = total_material_cost + container_cost + transport_cost + sales_cost + misc_cost
+            self.total_rate_value = total_cost  # Store the total rate for later use
+
+            # Display the total rate in a field
+            self.total_rate.setText(f"{total_cost:.2f}")  # Update UI field
+
+            # Gather product details
+            product_name = self.product_name.text()
+            description = self.description.text()
+            yield_value = float(self.yield_value.text() or 0)
+            viscosity = float(self.viscosity.text() or 0)
+            weight_lit = float(self.weight_lit.text() or 0)
+            date_created = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # Commit product details and calculated rate to the database
+            cursor = self.db_connection.cursor()
+            cursor.execute("""
+                INSERT INTO product_details (
+                    product_name, yield_value, viscosity, weight_lit, container_cost,
+                    transport_cost, sales_cost, misc_cost, total_rate, description, date_created
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                product_name, yield_value, viscosity, weight_lit, container_cost,
+                transport_cost, sales_cost, misc_cost, total_cost, description, date_created
+            ))
+            self.db_connection.commit()
+
+            # Show confirmation message
+            QMessageBox.information(self, "Success", "Product rate calculated and saved successfully!")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred while calculating the product rate:\n{str(e)}")
 
 class RawMaterialManagementDialog(QDialog):
     def __init__(self, db_connection):
@@ -475,8 +675,6 @@ class RawMaterialHistoryDialog(QDialog):
                 self.history_table.setItem(row_count, 2, QTableWidgetItem(str(record[2]) if record[2] is not None else "N/A"))  # Old Price
                 self.history_table.setItem(row_count, 3, QTableWidgetItem(str(record[3])))  
                 self.history_table.setItem(row_count, 4, QTableWidgetItem(str(record[4])))  
-
-
 
 if __name__ == "__main__":
     app = QApplication([])
