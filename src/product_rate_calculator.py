@@ -1,21 +1,32 @@
-from PyQt5.QtWidgets import QApplication,QFileDialog, QMainWindow, QWidget, QVBoxLayout, QFormLayout, QGroupBox, QLineEdit, QPushButton, \
-    QTableWidget, QTableWidgetItem, QLabel, QComboBox, QHBoxLayout, QMenuBar, QMenu, QAction, QMessageBox
-import sqlite3
-from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import QDialog
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QFormLayout, QGroupBox, QLineEdit, QPushButton, \
+    QTableWidget, QTableWidgetItem, QLabel, QComboBox, QFileDialog, QHBoxLayout, QMenuBar, QMenu, QAction, QMessageBox
+from PyQt5.QtWidgets import (
+      QWidget, QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QSpacerItem, QSizePolicy
+     )
+import sys
+from PyQt5.QtGui import QPixmap, QFont
 from PyQt5.QtCore import Qt
-from datetime import datetime
+import sqlite3
+from PyQt5.QtWidgets import QDialog,QStackedWidget
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QStandardItemModel,QDoubleValidator
+from PyQt5.QtWidgets import QAbstractItemView
+from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from reportlab.lib import colors
+from reportlab.lib.units import cm
+from reportlab.platypus import Table, TableStyle
+from io import BytesIO
+from datetime import datetime
+from datetime import date
+import os
 from ProductHistoryScreen import ProductHistoryScreen
 
-class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
-    def __init__(self):
+class ProductRateCalculatorApp(QWidget):  # Change to QMainWindow
+    def __init__(self, db_connection):
         super().__init__()
+        self.db_connection = db_connection
         self.initUI()
-        self.db_connection = self.create_db_connection()
-        self.create_raw_materials_table()
-        self.create_product_details_table()
-        self.create_raw_material_history_table()
 
     def create_raw_material_history_table(self):
         """Create the raw_material_history table if it does not exist"""
@@ -38,73 +49,92 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
         self.setGeometry(100, 100, 600, 600)
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #f7f7f7;
+                background-color: #f4f4f9; /* Light pastel background for a clean look */
             }
             QGroupBox {
-                font-size: 16px;
+                font-size: 18px; /* Larger font size */
                 font-weight: bold;
-                color: #444;
-                border: 1px solid #ccc;
-                border-radius: 5px;
-                margin-top: 10px;
+                font-family: 'Segoe UI', Arial, sans-serif; /* Stylish font */
+                color: #2c3e50; /* Deep gray for better visibility */
+                border: 2px solid #bdc3c7; /* Subtle border */
+                border-radius: 8px; /* Rounded edges */
+                margin-top: 15px; /* Spacing above groups */
+                padding: 10px; /* Internal padding for better readability */
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 subcontrol-position: top center;
-                padding: 5px;
+                padding: 8px;
+                font-size: 20px; /* Even larger font for titles */
+                color: #34495e; /* Distinct title color */
             }
             QLabel {
-                font-size: 14px;
+                font-size: 16px; /* Slightly larger labels */
+                font-family: 'Roboto', Arial, sans-serif; /* Modern font */
+                color: #34495e; /* Distinct label color */
             }
             QLineEdit {
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                padding: 5px;
-                font-size: 14px;
-                background-color: #fff;
+                border: 2px solid #95a5a6; /* Thicker border */
+                border-radius: 5px; /* Rounded input boxes */
+                padding: 10px;
+                font-size: 16px; /* Larger text */
+                font-family: 'Arial', sans-serif;
+                background-color: #ffffff; /* White background */
+                color: #2c3e50; /* Dark gray text */
             }
             QComboBox {
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                padding: 5px;
-                font-size: 14px;
-                background-color: #fff;
+                border: 2px solid #95a5a6;
+                border-radius: 5px;
+                padding: 8px 10px;
+                font-size: 16px;
+                font-family: 'Arial', sans-serif;
+                background-color: #ecf0f1; /* Light gray background */
+                color: #2c3e50;
             }
             QPushButton {
-                font-size: 14px;
-                padding: 8px 15px;
-                background-color: #4caf50;
-                color: white;
-                border: none;
-                border-radius: 5px;
+                font-size: 16px; /* Larger button text */
+                padding: 12px 20px; /* Larger buttons */
+                background-color: #3498db; /* Blue for primary buttons */
+                color: white; /* White text */
+                border: none; /* No border for cleaner look */
+                border-radius: 8px; /* Rounded buttons */
+                font-family: 'Verdana', sans-serif;
+                font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: #2980b9; /* Darker blue on hover */
+            }
+            QPushButton:pressed {
+                background-color: #1c598a; /* Even darker on click */
             }
             QTableWidget {
-                border: 1px solid #ccc;
-                border-radius: 5px;
-                background-color: #fff;
+                border: 1px solid #bdc3c7;
+                border-radius: 8px;
+                background-color: #ffffff;
+                font-size: 14px;
+                font-family: 'Arial', sans-serif;
+                color: #2c3e50;
             }
             QHeaderView::section {
-                background-color: #ddd;
+                background-color: #34495e; /* Dark gray headers */
+                color: white; /* White text for headers */
                 font-weight: bold;
+                font-size: 16px; /* Larger header font */
                 border: none;
+                padding: 8px;
             }
         """)
-        # Create Menu Bar
-        self.createMenuBar()
 
-        # Central Widget and Layout
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout()
+        
+        layout = QVBoxLayout(self)
 
         # Product Details Form
         self.product_form = QFormLayout()
         self.product_form_group = QGroupBox("Product Details")
         layout.addWidget(self.product_form_group)
 
+        self.operator_name = QLineEdit()
+        self.product_form.addRow("Operator Name:", self.operator_name)
         self.product_name = QLineEdit()
         self.description = QLineEdit()
         self.yield_value = QLineEdit()
@@ -132,6 +162,7 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
 
         # Dropdown for material type and name
         self.material_type_dropdown = QComboBox()
+        self.material_type_label = QLabel("Select Material Type")
         self.material_type_dropdown.addItems(["Pigment", "Additive", "Resin", "Thinner"])
         self.material_type_dropdown.currentIndexChanged.connect(self.update_material_name_dropdown)
 
@@ -176,8 +207,6 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
         self.clear_button.clicked.connect(self.clear_form)
         layout.addWidget(self.clear_button)
 
-        # Set Main Layout
-        central_widget.setLayout(layout)
     
     def clear_form(self):
         """
@@ -207,241 +236,183 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
             "PDF Files (*.pdf);;All Files (*)",
             options=options
         )
+         
 
         if not file_path:
             QMessageBox.warning(self, "No Path Set", "No file path selected. Invoice generation aborted.")
             return
-
+        if not file_path.lower().endswith('.pdf'):
+            file_path += ".pdf"
         try:
             # Step 2: Generate the invoice PDF
-            self.generate_invoice_pdf(file_path)
+            self.download_invoice(file_path)
+            # Step 3: Read the PDF file as binary (BLOB)
+            with open(file_path, 'rb') as pdf_file:
+                pdf_data = pdf_file.read()
+            
+            # Step 4: Insert invoice data into the database
+            cursor = self.db_connection.cursor()
+            cursor.execute('''
+                INSERT INTO invoices (product_name, invoice_pdf)
+                VALUES (?, ?)
+            ''', (self.product_name.text(), pdf_data))
+            self.db_connection.commit()
             QMessageBox.information(self, "Success", f"Invoice successfully saved at:\n{file_path}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to generate invoice: {str(e)}")
 
-    def generate_invoice_pdf(self, file_path):
-        """Generate the invoice PDF and save it to the specified file path."""
-        from reportlab.pdfgen import canvas
-        from reportlab.lib.pagesizes import letter
+    def download_invoice(self, file_path):
+        """Generate and save the invoice as a PDF with a structured table."""
+        operator_name = self.operator_name
+        product_name = self.product_name.text()
+        total_rate = self.total_rate.text()
 
-        # Example product details
-        product_details = {
-            "Product Name": self.product_name.text(),
-            "Description": self.description.text(),
-            "Yield Value": self.yield_value.text(),
-            "Viscosity": self.viscosity.text(),
-            "Weight / Lit": self.weight_lit.text(),
-            "Total Rate": self.total_rate.text(),
-            "Date": datetime.now().strftime("%Y-%m-%d"),
-        }
+        buffer = BytesIO()
+        p = canvas.Canvas(buffer, pagesize=A4)
+        width, height = A4
 
-        c = canvas.Canvas(file_path, pagesize=letter)
-        c.drawString(100, 750, "Invoice")
-        c.drawString(100, 730, "=====================")
-        y = 700
+        p.setFont("Helvetica-Bold", 16)
+        p.drawString(50, height - 50, "Vishal Paints, Inc")
+        p.setFont("Helvetica", 12)
+        p.drawString(50, height - 70, f"Operator: {operator_name}")  # Add operator name
+        p.drawString(50, height - 90, f"Date: {datetime.now().strftime('%Y-%m-%d')}")
 
-        for key, value in product_details.items():
-            c.drawString(100, y, f"{key}: {value}")
-            y -= 20
+        if not product_name or not total_rate:
+            QMessageBox.warning(self, "Error", "Please fill in product details and calculate the rate first!")
+            return
 
-        c.save()
+        yield_amount = float(self.yield_value.text() or 0)
+        viscosity = self.viscosity.text()
+        weight_lit = float(self.weight_lit.text() or 0)
+        container_cost = float(self.container_cost.text() or 0)
+        transport_cost = float(self.transport_cost.text() or 0)
+        sales_cost = float(self.sales_cost.text() or 0)
+        misc_cost = float(self.misc_cost.text() or 0)
 
+        # desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+        # file_name = f"{product_name}_invoice.pdf"
+        # file_path = os.path.join(desktop_path, file_name)
 
-    def createMenuBar(self):
-        menu_bar = self.menuBar()
+        additive_cost, resin_cost, pigment_cost, thinner_cost = 0, 0, 0, 0
+        invoice_items = []
+        total_quantity = 0
 
-        # Create Menus
-        home_menu = menu_bar.addMenu('Home')
-        product_menu = menu_bar.addMenu('Product')
-        raw_material_menu = menu_bar.addMenu('Raw Material')
-        inventory_menu = menu_bar.addMenu('Inventory')
+        for row in range(self.material_table.rowCount()):
+            material_type = self.material_table.item(row, 0).text().lower()
+            material_name = self.material_table.item(row, 1).text()
+            quantity = float(self.material_table.item(row, 2).text() or 0)
+            rate_per_unit = float(self.material_table.item(row, 3).text() or 0)
+            total_cost = quantity * rate_per_unit
 
-        # Actions for Home Menu
-        home_action = QAction('Home', self)
-        home_action.triggered.connect(self.show_home)
-        home_menu.addAction(home_action)
+            invoice_items.append((material_name, quantity, rate_per_unit, total_cost))
+            total_quantity += quantity
 
-        # Actions for Product Menu
-        product_rate_action = QAction('Product Rate Calculator', self)
-        product_history_action = QAction('Product History', self)
-        product_rate_action.triggered.connect(self.show_product_rate_calculator)
-        product_history_action.triggered.connect(self.show_product_history)
+            if material_type == 'additive':
+                additive_cost += total_cost
+            elif material_type == 'resin':
+                resin_cost += total_cost
+            elif material_type == 'pigment':
+                pigment_cost += total_cost
+            elif material_type == 'thinner':
+                thinner_cost += total_cost
 
-        product_menu.addAction(product_rate_action)
-        product_menu.addAction(product_history_action)
+        rate_per_kg = float(total_rate) / total_quantity if total_quantity > 0 else 0
+        rate_per_lit = float(total_rate) / yield_amount if yield_amount > 0 else 0
+        cost_per_lit = rate_per_lit + container_cost + transport_cost + sales_cost + misc_cost
 
-        # Actions for Raw Material Menu
-        raw_material_management_action = QAction('Raw Material Management', self)
-        raw_material_history_action = QAction('Raw Material History', self)
-        raw_material_management_action.triggered.connect(self.open_raw_material_management)
-        raw_material_history_action.triggered.connect(self.show_raw_material_history)
+        additive_cost_per_lit = additive_cost / yield_amount if yield_amount > 0 else 0
+        resin_cost_per_lit = resin_cost / yield_amount if yield_amount > 0 else 0
+        pigment_cost_per_lit = pigment_cost / yield_amount if yield_amount > 0 else 0
+        thinner_cost_per_lit = thinner_cost / yield_amount if yield_amount > 0 else 0
 
-        raw_material_menu.addAction(raw_material_management_action)
-        raw_material_menu.addAction(raw_material_history_action)
+        pdf_canvas = canvas.Canvas(file_path, pagesize=A4)
+        pdf_canvas.setTitle(f"Invoice - {product_name}")
+        width, height = A4
 
-        # Actions for Inventory Menu
-        inventory_details_action = QAction('Inventory Details', self)
-        inventory_details_action.triggered.connect(self.show_inventory_details)
+        pdf_canvas.setFont("Helvetica-Bold", 16)
+        pdf_canvas.drawString(50, height - 50, f"Vishal Paints, Inc - Invoice for {product_name}")
 
-        inventory_menu.addAction(inventory_details_action)
+        pdf_canvas.setFont("Helvetica", 12)
+        pdf_canvas.drawString(50, height - 90, f"Yield: {yield_amount}")
+        pdf_canvas.drawString(50, height - 110, f"Viscosity: {viscosity}")
+        pdf_canvas.drawString(50, height - 130, f"Weight/Lit: {weight_lit}")
+        pdf_canvas.drawString(50, height - 150, f"Container Cost: Rs {container_cost}")
+        pdf_canvas.drawString(50, height - 170, f"Transport Cost: Rs {transport_cost}")
+        pdf_canvas.drawString(50, height - 190, f"Sales Cost: Rs {sales_cost}")
+        pdf_canvas.drawString(50, height - 210, f"Misc. Cost: Rs {misc_cost}")
 
-    def show_home(self):
-        QMessageBox.information(self, "Home", "You are at the Home screen.")
+        pdf_canvas.drawString(50, height - 230, f"Total Quantity: {total_quantity}")
+        pdf_canvas.drawString(50, height - 250, f"Total Rate: Rs {total_rate}")
 
-    def show_product_rate_calculator(self):
-        QMessageBox.information(self, "Product Rate Calculator", "You are already on the Product Rate Calculator screen.")
+        # Generate structured table for materials
+        table_data = [["Material Name", "Quantity", "Rate/Unit (Rs)", "Total Cost (Rs)"]]
+        for item in invoice_items:
+            table_data.append([item[0], f"{item[1]:.2f}", f"{item[2]:.2f}", f"{item[3]:.2f}"])
 
-    def show_product_history(self):
-        self.product_history_action = ProductHistoryScreen(self.db_connection)
-        self.product_history_action.show()
+        table = Table(table_data, colWidths=[7 * cm, 3 * cm, 5 * cm, 5 * cm])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
 
-    def open_raw_material_management(self):
-        # QMessageBox.information(self, "Raw Material Management", "This feature will manage raw materials.")
-        raw_material_dialog = RawMaterialManagementDialog(self.db_connection)
-        raw_material_dialog.exec()
+        # Draw the table
+        table.wrapOn(pdf_canvas, width - 100, height)
+        table.drawOn(pdf_canvas, 50, height - 400)
 
-    def show_raw_material_history(self):
-        history_dialog = RawMaterialHistoryDialog(self.db_connection)
-        history_dialog.exec()
+        # Add summary
+        y_position = height - 450
+        pdf_canvas.setFont("Helvetica-Bold", 14)
+        pdf_canvas.drawString(50, y_position, "Summary:")
+        y_position -= 20
 
-        # Create a layout for the dialog
-        layout = QVBoxLayout()
+        pdf_canvas.setFont("Helvetica", 12)
+        pdf_canvas.drawString(50, y_position, f"Additive Cost/Lit: Rs {additive_cost_per_lit:.2f}")
+        y_position -= 20
+        pdf_canvas.drawString(50, y_position, f"Resin Cost/Lit: Rs {resin_cost_per_lit:.2f}")
+        y_position -= 20
+        pdf_canvas.drawString(50, y_position, f"Pigment Cost/Lit: Rs {pigment_cost_per_lit:.2f}")
+        y_position -= 20
+        pdf_canvas.drawString(50, y_position, f"Thinner Cost/Lit: Rs {thinner_cost_per_lit:.2f}")
+        y_position -= 20
+        pdf_canvas.drawString(50, y_position, f"Rate/Kg: Rs {rate_per_kg:.2f}")
+        y_position -= 20
+        pdf_canvas.drawString(50, y_position, f"Rate/Lit: Rs {rate_per_lit:.2f}")
+        y_position -= 20
+        pdf_canvas.drawString(50, y_position, f"Cost/Lit: Rs {cost_per_lit:.2f}")
 
-        # Table to display raw material history
-        raw_material_table = QTableWidget(0, 3)
-        raw_material_table.setHorizontalHeaderLabels(["Name", "Type", "Price"])
-        layout.addWidget(raw_material_table)
+        pdf_canvas.save()
 
-        # Fetch raw material data from the database
+    def update_material_type_dropdown(self):
+        """Populate the Material Type dropdown with available material types."""
         cursor = self.db_connection.cursor()
-        cursor.execute("SELECT name, mat_type, price FROM raw_materials")
-        raw_materials = cursor.fetchall()
+        cursor.execute("SELECT DISTINCT mat_type FROM raw_materials")
+        material_types = cursor.fetchall()
 
-        # Populate the table with raw material data
-        for row_data in raw_materials:
-            row = raw_material_table.rowCount()
-            raw_material_table.insertRow(row)
-            for column, data in enumerate(row_data):
-                raw_material_table.setItem(row, column, QTableWidgetItem(str(data)))
+        self.material_type_dropdown.clear()
 
-        # Add a close button
-        close_button = QPushButton("Close")
-        close_button.clicked.connect(history_dialog.close)
-        layout.addWidget(close_button)
+        # Add placeholder item
+        self.material_type_dropdown.addItem("Select Material Type")
+        for material_type in material_types:
+            self.material_type_dropdown.addItem(material_type[0])
 
-        history_dialog.setLayout(layout)
-        history_dialog.exec()
-
-    def show_inventory_details(self):
-        QMessageBox.information(self, "Inventory Details", "This feature will show the inventory details.")
-
-    def create_db_connection(self):
-        """Create a connection to SQLite database"""
-        conn = sqlite3.connect("product_rate.db")
-        return conn
-
-    def create_raw_materials_table(self):
-        """Create the raw_materials table if it doesn't exist and insert initial data only once"""
-        cursor = self.db_connection.cursor()
-        
-        # cursor.execute("DROP TABLE IF EXISTS raw_materials")
-        # self.db_connection.commit()
-        # print("The raw_materials table has been deleted.")
-
-        # Create table if it doesn't exist
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS raw_materials (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                price REAL NOT NULL,
-                mat_type TEXT NOT NULL
-            )
-        """)
-        
-        # Check if the table already has data
-        cursor.execute("SELECT COUNT(*) FROM raw_materials")
-        if cursor.fetchone()[0] == 0:  # Only insert data if table is empty
-            cursor.execute("""
-                INSERT INTO raw_materials (name, price, mat_type) VALUES
-                ('P1', 227.00, 'Pigment'),
-                ('P11', 109.00, 'Pigment'),
-                ('P6', 170.00, 'Pigment'),
-                ('P3', 560.00, 'Pigment'),
-                ('P4', 158.00, 'Pigment'),
-                ('P5', 109.00, 'Pigment'),
-                ('P60', 59.00, 'Pigment'),
-                ('P7', 115.00, 'Pigment'),
-                ('P100', 35.00, 'Pigment'),
-                ('P50', 125.00, 'Pigment'),
-                ('P70', 130.00, 'Pigment'),
-                ('Redoxide Powder', 15.00, 'Pigment'),
-                ('White Whiting', 25.00, 'Pigment'),
-                ('Talc', 104.00, 'Pigment'),
-                ('A1', 162.00, 'Additive'),
-                ('A2', 150.00, 'Additive'),
-                ('HCO', 150.00, 'Additive'),
-                ('ACE', 600.00, 'Additive'),
-                ('PINCOIL', 150.00, 'Additive'),
-                ('BRIGHT', 600.00, 'Additive'),
-                ('CATALYST MATT', 225.00, 'Additive'),
-                ('ICLAY', 308.00, 'Additive'),
-                ('ICLAY JELLY 10%', 250.00, 'Additive'),
-                ('LEAK 10%', 108.00, 'Additive'),
-                ('OMEGA', 55.00, 'Additive'),
-                ('DH', 134.00, 'Additive'),
-                ('M1 50%', 125.00, 'Resin'),
-                ('M1 70%', 124.00, 'Resin'),
-                ('M6', 206.00, 'Resin'),
-                ('Mo 70%', 220.00, 'Resin'),
-                ('MD', 129.00, 'Resin'),
-                ('MD 60%', 125.00, 'Resin'),
-                ('R 920', 160.00, 'Resin'),
-                ('DBTL', 40.00, 'Resin'),
-                ('927', 109.00, 'Resin'),
-                ('X1', 118.00, 'Thinner'),
-                ('X2', 120.00, 'Thinner'),
-                ('X3', 118.00, 'Thinner'),
-                ('X5', 105.00, 'Thinner'),
-                ('C9', 38.00, 'Thinner'),
-                ('C12', 25.00, 'Thinner');
-            """)
-            self.db_connection.commit()
-
-    def create_product_details_table(self):
-        """Create the product_details table if it doesn't exist"""
-        cursor = self.db_connection.cursor()
-
-        cursor.execute("""  
-            CREATE TABLE IF NOT EXISTS product_details (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                product_name TEXT NOT NULL,
-                yield_value REAL NOT NULL,
-                viscosity REAL NOT NULL,
-                weight_lit REAL NOT NULL,
-                container_cost REAL NOT NULL,
-                transport_cost REAL NOT NULL,
-                sales_cost REAL NOT NULL,
-                misc_cost REAL NOT NULL,
-                total_rate REAL NOT NULL,
-                description TEXT,
-                date_created TEXT
-            )
-        """)
-
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS product_materials (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                product_id INTEGER NOT NULL,
-                material_name TEXT NOT NULL,
-                material_quantity REAL NOT NULL,
-                FOREIGN KEY(product_id) REFERENCES product_details(id)
-            );
-        """)
-        self.db_connection.commit()
+        # Connect to material name update function
+        self.material_type_dropdown.currentIndexChanged.connect(self.update_material_name_dropdown)
 
     def update_material_name_dropdown(self):
-        """Update the Material Name dropdown based on the selected material type"""
+        """Update the Material Name dropdown based on the selected material type."""
         selected_material_type = self.material_type_dropdown.currentText()
+
+        # Skip if the placeholder is selected
+        if selected_material_type == "Select Material Type":
+            self.material_name_dropdown.clear()
+            self.material_name_dropdown.addItem("Select Material")
+            return
+
         cursor = self.db_connection.cursor()
         cursor.execute("""
             SELECT DISTINCT name FROM raw_materials WHERE mat_type = ?
@@ -450,11 +421,12 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
 
         self.material_name_dropdown.clear()
 
-       
+        # Add placeholder item
         self.material_name_dropdown.addItem("Select Material")
         for material_name in material_names:
             self.material_name_dropdown.addItem(material_name[0])
 
+        # Connect to rate update function
         self.material_name_dropdown.currentIndexChanged.connect(self.update_rate)
 
     def update_rate(self):
@@ -532,152 +504,3 @@ class ProductRateCalculatorApp(QMainWindow):  # Change to QMainWindow
             QMessageBox.information(self, "Success", "Product rate calculated and saved successfully!")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred while calculating the product rate:\n{str(e)}")
-
-class RawMaterialManagementDialog(QDialog):
-    def __init__(self, db_connection):
-        super().__init__()
-        self.db_connection = db_connection
-        self.setWindowTitle("Raw Material Management")
-        self.setGeometry(150, 150, 500, 400)
-
-        layout = QVBoxLayout()
-        self.setLayout(layout)
-
-        self.material_table = QTableWidget(0, 3)
-        self.material_table.setHorizontalHeaderLabels(["Material Name", "Type", "Price"])
-        self.material_table.setEditTriggers(QTableWidget.DoubleClicked)  # Allow price editing
-        layout.addWidget(self.material_table)
-
-        button_layout = QHBoxLayout()
-        self.save_button = QPushButton("Save Changes")
-        self.delete_button = QPushButton("Delete Selected")
-        button_layout.addWidget(self.save_button)
-        button_layout.addWidget(self.delete_button)
-        layout.addLayout(button_layout)
-
-        self.save_button.clicked.connect(self.save_changes)
-        self.delete_button.clicked.connect(self.delete_selected)
-
-        self.load_materials()
-
-    def load_materials(self):
-        """Load raw materials into the table."""
-        cursor = self.db_connection.cursor()
-        cursor.execute("SELECT id, name, mat_type, price FROM raw_materials")
-        materials = cursor.fetchall()
-
-        self.material_table.setRowCount(0)
-        for material in materials:
-            row_count = self.material_table.rowCount()
-            self.material_table.insertRow(row_count)
-            self.material_table.setItem(row_count, 0, QTableWidgetItem(material[1]))  
-            self.material_table.setItem(row_count, 1, QTableWidgetItem(material[2]))  
-            self.material_table.setItem(row_count, 2, QTableWidgetItem(str(material[3])))
-            self.material_table.item(row_count, 0).setData(Qt.UserRole, material[0]) 
-
-    def save_changes(self):
-        """Save edited prices to the database and log changes to history."""
-        cursor = self.db_connection.cursor()
-        for row in range(self.material_table.rowCount()):
-            material_id = self.material_table.item(row, 0).data(Qt.UserRole)
-            name = self.material_table.item(row, 0).text()
-            mat_type = self.material_table.item(row, 1).text()
-            new_price = float(self.material_table.item(row, 2).text())
-
-            
-            cursor.execute("""
-                SELECT price FROM raw_materials WHERE id = ?
-            """, (material_id,))
-            old_price = cursor.fetchone()[0]
-
-            
-            cursor.execute("""
-                UPDATE raw_materials
-                SET price = ?
-                WHERE id = ?
-            """, (new_price, material_id))
-
-            
-            cursor.execute("""
-                INSERT INTO raw_material_history (raw_material_id, change_type, old_price, new_price)
-                VALUES (?, ?, ?, ?)
-            """, (material_id,'updated', old_price, new_price))
-
-        self.db_connection.commit()
-        QMessageBox.information(self, "Success", "Changes saved successfully!")
-
-
-    def delete_selected(self):
-        """Delete the selected raw material from the database."""
-        selected_row = self.material_table.currentRow()
-        if selected_row == -1:
-            QMessageBox.warning(self, "Error", "Please select a row to delete.")
-            return
-
-        material_id = self.material_table.item(selected_row, 0).data(Qt.UserRole)
-        cursor = self.db_connection.cursor()
-
-       
-        cursor.execute("DELETE FROM raw_materials WHERE id = ?", (material_id,))
-        self.db_connection.commit()
-
-        self.material_table.removeRow(selected_row)
-        QMessageBox.information(self, "Success", "Material deleted successfully!")
-
-class RawMaterialHistoryDialog(QDialog):
-    def __init__(self, db_connection):
-        super().__init__()
-        self.db_connection = db_connection
-        self.setWindowTitle("Raw Material History")
-        self.setGeometry(150, 150, 600, 400)
-
-        layout = QVBoxLayout()
-        self.setLayout(layout)
-
-    
-        self.history_table = QTableWidget(0, 5)
-        # self.history_table.setHorizontalHeaderLabels(["Material Name", "Type", "Price", "Date"])
-        self.history_table.setColumnCount(5) 
-        self.history_table.setHorizontalHeaderLabels(["Material Name", "Material Type", "Old Price", "New Price", "Date"])
-        layout.addWidget(self.history_table)
-
-        self.load_history()
-
-    def load_history(self):
-        """Load raw material history into the table, showing all materials."""
-        cursor = self.db_connection.cursor()
-        cursor.execute("""
-            SELECT rm.name, rm.mat_type, 
-                rh.old_price, 
-                rh.new_price, 
-                rh.change_date
-            FROM raw_materials rm
-            LEFT JOIN raw_material_history rh 
-                ON rm.id = rh.raw_material_id
-            GROUP BY rm.id
-            ORDER BY MAX(rh.change_date) DESC
-        """)
-        history = cursor.fetchall()
-
-        self.history_table.setRowCount(0) 
-        for record in history:
-            row_count = self.history_table.rowCount()
-            self.history_table.insertRow(row_count)
-
-            self.history_table.setItem(row_count, 0, QTableWidgetItem(record[0])) 
-            self.history_table.setItem(row_count, 1, QTableWidgetItem(record[1])) 
-            
-            if record[2] == record[3]:
-                self.history_table.setItem(row_count, 2, QTableWidgetItem(str(record[2]) if record[2] is not None else "N/A"))  # Old Price
-                self.history_table.setItem(row_count, 3, QTableWidgetItem("")) 
-                self.history_table.setItem(row_count, 4, QTableWidgetItem("")) 
-            else: 
-                self.history_table.setItem(row_count, 2, QTableWidgetItem(str(record[2]) if record[2] is not None else "N/A"))  # Old Price
-                self.history_table.setItem(row_count, 3, QTableWidgetItem(str(record[3])))  
-                self.history_table.setItem(row_count, 4, QTableWidgetItem(str(record[4])))  
-
-if __name__ == "__main__":
-    app = QApplication([])
-    window = ProductRateCalculatorApp()
-    window.show()
-    app.exec_()
