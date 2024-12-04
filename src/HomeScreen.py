@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QFo
 from PyQt5.QtWidgets import (
       QWidget, QVBoxLayout, QLabel,QInputDialog, QGridLayout,QFileDialog, QHBoxLayout, QScrollArea, QPushButton, QSpacerItem, QSizePolicy
      )
-from PyQt5.QtGui import QPixmap, QFont
+from PyQt5.QtGui import QPixmap, QColor,QFont
 from PyQt5.QtCore import Qt
 import sqlite3
 from reportlab.platypus import Table, TableStyle
@@ -379,6 +379,12 @@ class RawMaterialHistoryDialog(QDialog):
         layout = QVBoxLayout()
         self.setLayout(layout)
 
+        # Create a search bar at the top of the layout
+        self.search_bar = QLineEdit(self)
+        self.search_bar.setPlaceholderText("Search by material name or type...")
+        self.search_bar.textChanged.connect(self.filter_history)  # Connect to filter method
+        layout.addWidget(self.search_bar)
+
         # Scrollable area for tables
         scroll_area = QScrollArea(self)
         scroll_area.setWidgetResizable(True)
@@ -417,8 +423,8 @@ class RawMaterialHistoryDialog(QDialog):
             history_by_type[mat_type].append((name, mat_type, old_price, new_price, change_date_formatted))
 
         # Create a layout to display tables side by side
-        tables_layout = QHBoxLayout()
-        self.scroll_layout.addLayout(tables_layout)
+        self.tables_layout = QHBoxLayout()
+        self.scroll_layout.addLayout(self.tables_layout)
 
         # Create a table for each material type
         for mat_type, items in history_by_type.items():
@@ -457,63 +463,55 @@ class RawMaterialHistoryDialog(QDialog):
             table_layout.addWidget(table)
 
             # Add the table layout to the main layout
-            tables_layout.addLayout(table_layout)
+            self.tables_layout.addLayout(table_layout)
             self.tables_by_type[mat_type] = table
 
+    def filter_history(self):
+        """Filter the history displayed in the tables based on search query."""
+        search_query = self.search_bar.text().lower()
 
-    def save_price_change(self, raw_material_id, old_price, new_price):
-        """Save a price change for a raw material in the database."""
-        cursor = self.db_connection.cursor()
+        # Filter history by checking if the query matches the material name or type
+        for mat_type, table in self.tables_by_type.items():
+            # Clear existing rows
+            table.setRowCount(0)
 
-        # Insert the new price change for the selected raw material
-        cursor.execute("""
-            INSERT INTO raw_material_history (raw_material_id, old_price, new_price, change_date)
-            VALUES (?, ?, ?, ?)
-        """, (raw_material_id, old_price, new_price, datetime.now().strftime("%Y-%m-%d")))  # Save only the date, not time
-        self.db_connection.commit()
+            # Fetch the relevant history from the database again
+            cursor = self.db_connection.cursor()
+            cursor.execute("""
+                SELECT rm.name, rm.mat_type, rh.old_price, rh.new_price, rh.change_date
+                FROM raw_materials rm
+                LEFT JOIN raw_material_history rh 
+                    ON rm.id = rh.raw_material_id
+                WHERE (rh.old_price IS NOT NULL OR rh.new_price IS NOT NULL)
+                AND (LOWER(rm.name) LIKE ? OR LOWER(rm.mat_type) LIKE ?)
+                ORDER BY rm.mat_type, rh.change_date DESC
+            """, (f"%{search_query}%", f"%{search_query}%"))
+            filtered_history = cursor.fetchall()
 
-        # Now, refresh the history for the material, only for the updated one
-        self.refresh_material_history(raw_material_id)
+            # Organize filtered history by material type
+            history_by_type = {}
+            for name, mat_type, old_price, new_price, change_date in filtered_history:
+                if mat_type not in history_by_type:
+                    history_by_type[mat_type] = []
 
-    def refresh_material_history(self, raw_material_id):
-        """Refresh the history of the specific raw material."""
-        cursor = self.db_connection.cursor()
-        
-        # Fetch the specific material history from the database
-        cursor.execute("""
-            SELECT rm.name, rm.mat_type, rh.old_price, rh.new_price, rh.change_date
-            FROM raw_materials rm
-            LEFT JOIN raw_material_history rh 
-                ON rm.id = rh.raw_material_id
-            WHERE rm.id = ?
-            ORDER BY rh.change_date DESC
-        """, (raw_material_id,))
-        history = cursor.fetchall()
+                # Format the price change details for each raw material
+                change_date_formatted = QDateTime.fromString(change_date, "yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd")
+                history_by_type[mat_type].append((name, mat_type, old_price, new_price, change_date_formatted))
 
-        # Organize history for the updated material
-        history_by_type = {}
-        for name, mat_type, old_price, new_price, change_date in history:
-            if mat_type not in history_by_type:
-                history_by_type[mat_type] = []
-
-            # Format the price change details
-            change_date_formatted = QDateTime.fromString(change_date, "yyyy-MM-dd HH:mm:ss").toString("yyyy-MM-dd")
-            history_by_type[mat_type].append((name, mat_type, old_price, new_price, change_date_formatted))
-
-        # Update the table directly for the changed material
-        for mat_type, items in history_by_type.items():
-            table = self.tables_by_type.get(mat_type)
-            if table:
-                # Clear the existing rows and insert the updated rows
-                table.setRowCount(0)
-                for name, mat_type, old_price, new_price, change_date in items:
-                    row_count = table.rowCount()
-                    table.insertRow(row_count)
-                    table.setItem(row_count, 0, QTableWidgetItem(name))
-                    table.setItem(row_count, 1, QTableWidgetItem(mat_type))
-                    table.setItem(row_count, 2, QTableWidgetItem(str(old_price) if old_price is not None else "N/A"))
-                    table.setItem(row_count, 3, QTableWidgetItem(str(new_price) if new_price is not None else "N/A"))
-                    table.setItem(row_count, 4, QTableWidgetItem(change_date))  # Display formatted date
+            # Update the tables based on the filtered history
+            for mat_type, items in history_by_type.items():
+                table = self.tables_by_type.get(mat_type)
+                if table:
+                    # Clear the existing rows and insert the filtered rows
+                    table.setRowCount(0)
+                    for name, mat_type, old_price, new_price, change_date in items:
+                        row_count = table.rowCount()
+                        table.insertRow(row_count)
+                        table.setItem(row_count, 0, QTableWidgetItem(name))
+                        table.setItem(row_count, 1, QTableWidgetItem(mat_type))
+                        table.setItem(row_count, 2, QTableWidgetItem(str(old_price) if old_price is not None else "N/A"))
+                        table.setItem(row_count, 3, QTableWidgetItem(str(new_price) if new_price is not None else "N/A"))
+                        table.setItem(row_count, 4, QTableWidgetItem(change_date))  # Display formatted date
 
 class InventoryDetailsDialog(QDialog):
     def __init__(self, db_connection):
@@ -524,6 +522,12 @@ class InventoryDetailsDialog(QDialog):
 
         layout = QVBoxLayout()
         self.setLayout(layout)
+
+        # Search Bar
+        self.search_bar = QLineEdit(self)
+        self.search_bar.setPlaceholderText("Search Materials...")
+        self.search_bar.textChanged.connect(self.search_inventory)
+        layout.addWidget(self.search_bar)
 
         # Scrollable area for tables
         scroll_area = QScrollArea(self)
@@ -546,12 +550,7 @@ class InventoryDetailsDialog(QDialog):
     def load_inventory(self):
         """Load inventory data into separate tables by product type."""
         cursor = self.db_connection.cursor()
-        # Query to fetch material name, type, and price
-        cursor.execute("""
-            SELECT name, mat_type, price
-            FROM raw_materials
-            ORDER BY mat_type
-        """)
+        cursor.execute("""SELECT name, mat_type, price FROM raw_materials ORDER BY mat_type""")
         inventory = cursor.fetchall()
 
         # Organize inventory by type
@@ -571,14 +570,14 @@ class InventoryDetailsDialog(QDialog):
             table_layout = QVBoxLayout()
 
             # Table heading
-            table_label = QLabel(f"Material Type: {mat_type}")
+            table_label = QLabel(f"{mat_type}")
             table_label.setStyleSheet("font-weight: bold; font-size: 14px;")
             table_layout.addWidget(table_label)
 
             # Create the table
             table = QTableWidget(0, 2)
             table.setHorizontalHeaderLabels(["Material Name", "Price"])
-            table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            table.setEditTriggers(QAbstractItemView.NoEditTriggers)  # Make the table uneditable
             table.setSelectionMode(QAbstractItemView.NoSelection)
 
             for name, price in items:
@@ -594,46 +593,23 @@ class InventoryDetailsDialog(QDialog):
             tables_layout.addLayout(table_layout)
             self.tables_by_type[mat_type] = table
 
-    def display_inventory(self, inventory_by_type):
-        """Display the inventory by material type."""
-        # Clear previous tables
-        for i in reversed(range(self.scroll_layout.count())):
-            widget = self.scroll_layout.itemAt(i).widget()
-            if widget is not None:
-                widget.deleteLater()
+    def search_inventory(self):
+        """Search and filter the inventory based on the search query."""
+        query = self.search_bar.text().lower()
 
-        # Create a layout to display tables
-        tables_layout = QVBoxLayout()
-        self.scroll_layout.addLayout(tables_layout)
-
-        # Create a table for each product type
-        for mat_type, items in inventory_by_type.items():
-            table_label = QLabel(f"Material Type: {mat_type}")
-            table_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-            tables_layout.addWidget(table_label)
-
-            table = QTableWidget(0, 2)
-            table.setHorizontalHeaderLabels(["Material Name", "Price"])
-            table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-            table.setSelectionMode(QAbstractItemView.NoSelection)
-
-            for name, price in items:
-                row_count = table.rowCount()
-                table.insertRow(row_count)
-                table.setItem(row_count, 0, QTableWidgetItem(name))
-                table.setItem(row_count, 1, QTableWidgetItem(f"{price:.2f}"))
-
-            tables_layout.addWidget(table)
-            self.tables_by_type[mat_type] = table
+        for mat_type, table in self.tables_by_type.items():
+            for row in range(table.rowCount()):
+                item_name = table.item(row, 0).text().lower()
+                item_price = table.item(row, 1).text().lower()
+                # Show or hide row based on the search query
+                if query in item_name or query in item_price:
+                    table.setRowHidden(row, False)
+                else:
+                    table.setRowHidden(row, True)
 
     def print_inventory_pdf(self):
         """Generate a PDF with inventory details in a tabular format and allow the user to choose the file path."""
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Inventory PDF",
-            "Vishal_Paints_Inventory.pdf",
-            "PDF Files (*.pdf)"
-        )
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Inventory PDF", "Vishal_Paints_Inventory.pdf", "PDF Files (*.pdf)")
 
         if not file_path:  # User cancelled the dialog
             return
@@ -668,15 +644,13 @@ class InventoryDetailsDialog(QDialog):
 
             # Create the table
             data_table = Table(table_data, colWidths=[300, 100])
-            data_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ]))
+            data_table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                                            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                                            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                                            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                                            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                                            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                                            ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
 
             # Draw the table on the PDF
             data_table.wrapOn(pdf, width - 100, y_position)
@@ -747,9 +721,9 @@ class RawMaterialManagementScreen(QDialog):
         layout.addLayout(button_layout)
 
     def load_materials(self):
-        """Load raw materials into tables grouped by type."""
+        """Load all raw materials into a single table."""
         cursor = self.db_connection.cursor()
-        cursor.execute("SELECT id, name, mat_type, price FROM raw_materials ORDER BY mat_type, name")
+        cursor.execute("SELECT id, name, mat_type, price FROM raw_materials ORDER BY name")
         materials = cursor.fetchall()
 
         # Clear existing layout in material group
@@ -758,153 +732,153 @@ class RawMaterialManagementScreen(QDialog):
             if widget:
                 widget.deleteLater()
 
-        material_types = {}
-        for material in materials:
-            mat_type = material[2]
-            if mat_type not in material_types:
-                table = QTableWidget(0, 3)
-                table.setHorizontalHeaderLabels(["Material Name", "Price", "ID"])
-                table.setEditTriggers(QTableWidget.DoubleClicked)
-                table.setColumnHidden(2, True)  # Hide ID column
-                material_types[mat_type] = table
+        # Create a single table to display all materials
+        table = QTableWidget(len(materials), 4)  # 4 columns: Name, Price, Material Type, ID
+        table.setHorizontalHeaderLabels(["Material Name", "Price", "Material Type", "ID"])
+        table.setEditTriggers(QTableWidget.DoubleClicked)
+        table.setColumnHidden(3, True)  # Hide ID column
 
-                # Add material type group box in horizontal layout
-                group_box = QGroupBox(mat_type)
-                box_layout = QVBoxLayout()
-                box_layout.addWidget(table)
-                group_box.setLayout(box_layout)
+        # Insert material rows into the table
+        for row, material in enumerate(materials):
+            table.setItem(row, 0, QTableWidgetItem(material[1]))  # Name
+            table.setItem(row, 1, QTableWidgetItem(str(material[3])))  # Price
+            table.setItem(row, 2, QTableWidgetItem(material[2]))  # Material Type
+            table.setItem(row, 3, QTableWidgetItem(str(material[0])))  # ID
 
-                self.material_layout.addWidget(group_box)
-
-            table = material_types[mat_type]
-            row_count = table.rowCount()
-            table.insertRow(row_count)
-            table.setItem(row_count, 0, QTableWidgetItem(material[1]))  # Name
-            table.setItem(row_count, 1, QTableWidgetItem(str(material[3])))  # Price
-            table.setItem(row_count, 2, QTableWidgetItem(str(material[0])))  # ID
-
-        self.material_types = material_types
+        # Add the table to the layout
+        self.material_layout.addWidget(table)
 
     def perform_search(self):
-        """Search materials and show editable suggestions."""
-        search_text = self.search_input.text().lower()
-        if not search_text.strip():
+        """Search materials dynamically and allow editing of prices."""
+        search_text = self.search_input.text().strip().lower()
+        
+        # Clear existing layout in material group
+        for i in reversed(range(self.material_group.layout().count())):
+            widget = self.material_group.layout().itemAt(i).widget()
+            if widget:
+                widget.deleteLater()
+
+        if not search_text:  # Reload materials if search box is cleared
             self.load_materials()
             return
 
-        # Clear existing layout in material group
-        for i in reversed(range(self.material_group.layout().count())):
-            self.material_group.layout().itemAt(i).widget().deleteLater()
-
         cursor = self.db_connection.cursor()
-        cursor.execute(
-            "SELECT id, name, mat_type, price FROM raw_materials "
-            "WHERE LOWER(name) LIKE ? OR LOWER(mat_type) LIKE ?",
-            (f"%{search_text}%", f"%{search_text}%")
-        )
+        cursor.execute("""
+            SELECT id, name, mat_type, price FROM raw_materials 
+            WHERE LOWER(name) LIKE ? OR LOWER(mat_type) LIKE ?
+        """, (f"%{search_text}%", f"%{search_text}%"))
         results = cursor.fetchall()
 
         if results:
-            table = QTableWidget(0, 3)
-            table.setHorizontalHeaderLabels(["Material Name", "Price", "ID"])
+            # Create a table for displaying search results
+            table = QTableWidget(0, 4)
+            table.setHorizontalHeaderLabels(["Material Name", "Material Type", "Price", "ID"])
             table.setEditTriggers(QTableWidget.DoubleClicked)
-            table.setColumnHidden(2, True)  # Hide ID column
+            table.setColumnHidden(3, True)  # Hide the ID column
+
+            # Populate the table with search results
             for result in results:
                 row_count = table.rowCount()
                 table.insertRow(row_count)
                 table.setItem(row_count, 0, QTableWidgetItem(result[1]))  # Name
-                table.setItem(row_count, 1, QTableWidgetItem(str(result[3])))  # Price
-                table.setItem(row_count, 2, QTableWidgetItem(str(result[0])))  # ID
+                table.setItem(row_count, 1, QTableWidgetItem(result[2]))  # Material Type
+                table.setItem(row_count, 2, QTableWidgetItem(str(result[3])))  # Price
+                table.setItem(row_count, 3, QTableWidgetItem(str(result[0])))  # ID (hidden)
+
+            # Connect to a method for tracking changes to prices
+            # table.itemChanged.connect(self.track_price_change)
+
+            # Add the table to the material group layout
             self.material_group.layout().addWidget(table)
+            self.search_result_table = table  # Save reference to the search result table
         else:
-            label = QLabel("No matching materials found.")
-            self.material_group.layout().addWidget(label)
+            # Show "no results found" message if search yields no matches
+            no_results_label = QLabel("No matching materials found.")
+            self.material_group.layout().addWidget(no_results_label)
+
+    # def track_price_change(self, item):
+    #     """Track changes to the price and validate inputs."""
+    #     try:
+    #         if item.column() == 2:  # Price column
+    #             new_price = float(item.text())  # Validate input as a float
+    #             if new_price < 0:
+    #                 raise ValueError("Price cannot be negative.")
+    #             item.setBackground(QColor("lightgreen"))  # Highlight valid changes
+    #     except ValueError:
+    #         QMessageBox.warning(self, "Invalid Input", "Please enter a valid non-negative number for the price.")
+    #         item.setText("0.0")  # Reset to a default valid value
 
     def save_changes(self):
-        """Save edited prices to the database and log changes in history."""
+        """Save edited prices to the database for search results."""
         cursor = self.db_connection.cursor()
-        for mat_type, table in self.material_types.items():
-            for row in range(table.rowCount()):
-                try:
-                    material_id = int(table.item(row, 2).text())  # Material ID from column 2
-                    new_price = float(table.item(row, 1).text())  # New price from column 1
-                    
-                    # Fetch current price of the material
-                    cursor.execute("SELECT price FROM raw_materials WHERE id = ?", (material_id,))
-                    old_price = cursor.fetchone()
-                    if old_price:
-                        old_price = old_price[0]
-                    else:
-                        raise ValueError(f"Material ID {material_id} not found in raw_materials table.")
-                    
-                    # Only update and log the price change if the price is different
-                    if old_price != new_price:
-                        # Update the price of the material in the database
-                        cursor.execute("UPDATE raw_materials SET price = ? WHERE id = ?", (new_price, material_id))
-                        
-                        # Log the price change in the raw_materials_history table
-                        cursor.execute(""" 
-                            INSERT INTO raw_material_history (raw_material_id, old_price, new_price, change_date)
-                            VALUES (?, ?, ?, ?)
-                        """, (material_id, old_price, new_price, QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm:ss")))
-                    
-                except Exception as e:
-                    # Show an error message if something goes wrong
-                    QMessageBox.critical(self, "Error", f"Failed to save changes for Material ID {material_id}: {str(e)}")
-                    self.db_connection.rollback()
-                    return
+        updated = False
 
-        # Commit the changes to the database
-        try:
-            self.db_connection.commit()
-            QMessageBox.information(self, "Success", "Changes saved successfully!")
-        except Exception as e:
-            # Handle commit failure
-            QMessageBox.critical(self, "Error", f"Failed to commit changes: {str(e)}")
-            self.db_connection.rollback()
-            return
+        # Save changes for the displayed search results
+        for row in range(self.search_result_table.rowCount()):
+            try:
+                material_id = int(self.search_result_table.item(row, 3).text())  # Hidden ID column
+                new_price = float(self.search_result_table.item(row, 2).text())  # Price column
+                
+                # Fetch current price to check if it has changed
+                cursor.execute("SELECT price FROM raw_materials WHERE id = ?", (material_id,))
+                old_price = cursor.fetchone()[0]
+                
+                if old_price != new_price:
+                    # Update price in the database
+                    cursor.execute("UPDATE raw_materials SET price = ? WHERE id = ?", (new_price, material_id))
+                    
+                    # Log the price change in the history table
+                    cursor.execute("""
+                        INSERT INTO raw_material_history (raw_material_id, old_price, new_price, change_date)
+                        VALUES (?, ?, ?, ?)
+                    """, (material_id, old_price, new_price, QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm:ss")))
+                    
+                    updated = True
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save changes: {str(e)}")
+                self.db_connection.rollback()
+                return
 
-        # Clear the selection after saving changes
-        for table in self.material_types.values():
-            table.clearSelection()
+        if updated:
+            try:
+                self.db_connection.commit()
+                QMessageBox.information(self, "Success", "Changes saved successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to commit changes: {str(e)}")
+                self.db_connection.rollback()
+        else:
+            QMessageBox.information(self, "No Changes", "No changes were made to save.")
 
     def delete_selected(self):
-        """Delete the selected raw material from the database."""
-        material_selected = False  # Flag to track selection
-
-        for mat_type, table in self.material_types.items():
-            selected_row = table.currentRow()
-
-            if selected_row != -1:  # Check if a row is selected
-                material_selected = True
-                try:
-                    # Get the material name from the selected row (assuming it's in column 0)
-                    material_name = table.item(selected_row, 0).text().strip()
-                    print(f"Deleting material with Name: {material_name}")  # Debugging
-
-                    # Confirm material exists in the database
-                    cursor = self.db_connection.cursor()
-                    cursor.execute("SELECT * FROM raw_materials WHERE name = ?", (material_name,))
-                    if not cursor.fetchone():
-                        QMessageBox.warning(self, "Error", f"Material '{material_name}' not found in the database.")
-                        return
-
-                    # Perform the deletion
-                    cursor.execute("DELETE FROM raw_materials WHERE name = ?", (material_name,))
-                    self.db_connection.commit()
-
-                    # Remove the row from the table
-                    table.removeRow(selected_row)
-                    QMessageBox.information(self, "Success", f"Material '{material_name}' deleted successfully!")
-                    # Clear selection after deletion
-                    table.clearSelection()
-                    break
-                except Exception as e:
-                    QMessageBox.critical(self, "Error", f"Failed to delete material: {str(e)}")
-                    self.db_connection.rollback()
-
-        if not material_selected:  # If no material is selected
+        """Delete the selected raw material from the search result table and database."""
+        selected_row = self.search_result_table.currentRow()
+        
+        if selected_row == -1:
             QMessageBox.warning(self, "No Selection", "Please select a raw material to delete.")
+            return
+
+        # Get the material ID from the hidden column (ID column)
+        material_id = self.search_result_table.item(selected_row, 3).text()
+
+        # Ask for confirmation before deleting
+        reply = QMessageBox.question(self, 'Delete Material', f"Are you sure you want to delete the selected material?",
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            try:
+                cursor = self.db_connection.cursor()
+                # Delete the raw material from the database
+                cursor.execute("DELETE FROM raw_materials WHERE id = ?", (material_id,))
+                self.db_connection.commit()
+
+                # Remove the row from the table view
+                self.search_result_table.removeRow(selected_row)
+                QMessageBox.information(self, "Success", "Material deleted successfully!")
+
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete material: {str(e)}")
+                self.db_connection.rollback()
+
+
 
     def open_add_material_dialog(self):
         """Open the dialog to add a new material."""

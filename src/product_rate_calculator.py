@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QFormLayout, QGroupBox, QLineEdit, QPushButton, \
     QTableWidget, QTableWidgetItem, QLabel, QComboBox, QFileDialog, QHBoxLayout, QMenuBar, QMenu, QAction, QMessageBox
 from PyQt5.QtWidgets import (
-      QWidget, QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QSpacerItem, QSizePolicy
+      QWidget, QVBoxLayout, QLabel, QHBoxLayout, QCompleter, QPushButton, QSpacerItem, QSizePolicy
      )
 import sys
 from PyQt5.QtGui import QPixmap, QFont
@@ -163,11 +163,16 @@ class ProductRateCalculatorApp(QWidget):  # Change to QMainWindow
         # Dropdown for material type and name
         self.material_type_dropdown = QComboBox()
         self.material_type_label = QLabel("Select Material Type")
+        self.material_type_dropdown.clear()
+        self.material_type_dropdown.addItem("Select Material Type")
         self.material_type_dropdown.addItems(["Pigment", "Additive", "Resin", "Thinner"])
+        self.material_type_dropdown.setCurrentIndex(0)
         self.material_type_dropdown.currentIndexChanged.connect(self.update_material_name_dropdown)
 
         self.material_name_dropdown = QComboBox()  # Material Name dropdown (empty at first)
+        self.qty_label = QLabel("Qty: ")
         self.quantity_input = QLineEdit()  # Quantity input field
+        self.rate_label = QLabel("Rate: ")
         self.rate_input = QLineEdit()  # Rate input field (auto-populated)
 
         # Button to Add Material to Table
@@ -178,7 +183,9 @@ class ProductRateCalculatorApp(QWidget):  # Change to QMainWindow
         material_input_layout = QHBoxLayout()
         material_input_layout.addWidget(self.material_type_dropdown)
         material_input_layout.addWidget(self.material_name_dropdown)
+        material_input_layout.addWidget(self.qty_label)
         material_input_layout.addWidget(self.quantity_input)
+        material_input_layout.addWidget(self.rate_label)
         material_input_layout.addWidget(self.rate_input)
         material_input_layout.addWidget(self.add_material_button)
 
@@ -207,7 +214,6 @@ class ProductRateCalculatorApp(QWidget):  # Change to QMainWindow
         self.clear_button.clicked.connect(self.clear_form)
         layout.addWidget(self.clear_button)
 
-    
     def clear_form(self):
         """
         Clears all input fields in the form.
@@ -393,12 +399,16 @@ class ProductRateCalculatorApp(QWidget):  # Change to QMainWindow
         cursor.execute("SELECT DISTINCT mat_type FROM raw_materials")
         material_types = cursor.fetchall()
 
+        # Clear existing items
         self.material_type_dropdown.clear()
 
         # Add placeholder item
-        self.material_type_dropdown.addItem("Select Material Type")
-        for material_type in material_types:
-            self.material_type_dropdown.addItem(material_type[0])
+        self.material_type_dropdown.addItem("(Select a material)")
+        self.material_type_dropdown.setCurrentIndex(0)  # Ensure placeholder is the default visible item
+
+        # Add material types from the database
+        for mat_type in material_types:
+            self.material_type_dropdown.addItem(mat_type[0])
 
         # Connect to material name update function
         self.material_type_dropdown.currentIndexChanged.connect(self.update_material_name_dropdown)
@@ -425,7 +435,8 @@ class ProductRateCalculatorApp(QWidget):  # Change to QMainWindow
         self.material_name_dropdown.addItem("Select Material")
         for material_name in material_names:
             self.material_name_dropdown.addItem(material_name[0])
-
+        # Increase the width of the material name dropdown
+        self.material_name_dropdown.setFixedWidth(250)  # Adjust this value as needed 
         # Connect to rate update function
         self.material_name_dropdown.currentIndexChanged.connect(self.update_rate)
 
