@@ -13,6 +13,7 @@ class ProductHistoryScreen(QWidget):
     def init_ui(self):
         self.setWindowTitle("Product History")
         layout = QVBoxLayout()
+        self.setStyleSheet("background-color: #f4f6f9;")  # Light background color for the window
 
         # Table for product history
         self.product_table = QTableWidget()
@@ -21,6 +22,32 @@ class ProductHistoryScreen(QWidget):
             "Product ID", "Product Name", "Description",
             "Yield", "Total Rate", "Date Created"
         ])
+        self.product_table.setStyleSheet("""
+            QTableWidget {
+                border: 1px solid #ccc;
+                background-color: #ffffff;
+                font-size: 14px;
+                color: #333;
+                border-radius: 8px;
+            }
+            QHeaderView::section {
+                background-color: #3a5a40;
+                color: white;
+                font-weight: bold;
+                padding: 5px;
+            }
+            QTableWidget::item {
+                padding: 10px;
+            }
+            QTableWidget::item:selected {
+                background-color: #0066cc;
+                color: white;
+            }
+            QTableWidget::item:hover {
+                background-color: #e6f7ff;
+            }
+        """)
+
         layout.addWidget(self.product_table)
 
         # Fetch and display product history
@@ -28,14 +55,42 @@ class ProductHistoryScreen(QWidget):
 
         # Buttons layout
         buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(20)
+        buttons_layout.setContentsMargins(0, 10, 0, 20)
 
         # Download Invoice button
         download_invoice_button = QPushButton("Download Invoice")
+        download_invoice_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-size: 16px;
+                padding: 10px 20px;
+                border-radius: 5px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
         download_invoice_button.clicked.connect(self.download_invoice)
         buttons_layout.addWidget(download_invoice_button)
 
         # Back button
         back_button = QPushButton("Back")
+        back_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                font-size: 16px;
+                padding: 10px 20px;
+                border-radius: 5px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #e53935;
+            }
+        """)
         back_button.clicked.connect(self.close)
         buttons_layout.addWidget(back_button)
 
